@@ -329,6 +329,10 @@ struct GLSLLegalizationContext
 
     IRBuilder* builder;
     IRBuilder* getBuilder() { return builder; }
+
+    // For ray tracing shaders, we need to consolidate all parameters into a single structure
+    Dictionary<IRFunc*, IRInst*> rayTracingConsolidatedVars;
+    Dictionary<IRFunc*, List<IRParam*>> rayTracingProcessedParams;
 };
 
 // This examines the passed type and determines the GLSL mesh shader indices
@@ -2302,6 +2306,66 @@ IRInst* materializeValue(IRBuilder* builder, ScalarizedVal const& val)
     }
 }
 
+// Helper struct to collect out parameters
+struct RayTracingOutParams
+{
+    List<IRParam*> outParams;
+    List<IRVarLayout*> outParamLayouts;
+};
+
+// Collect all out parameters from a ray tracing entry point
+static RayTracingOutParams collectRayTracingOutParams(GLSLLegalizationContext* context, IRFunc* func)
+{
+    RayTracingOutParams result;
+    auto firstBlock = func->getFirstBlock();
+    if (!firstBlock)
+        return result;
+
+    for (auto pp = firstBlock->getFirstParam(); pp; pp = pp->getNextParam())
+    {
+        auto paramType = pp->getDataType();
+        if (as<IROutType>(paramType) || as<IRInOutType>(paramType))
+        {
+            auto paramLayoutDecoration = pp->findDecoration<IRLayoutDecoration>();
+            SLANG_ASSERT(paramLayoutDecoration);
+            auto paramLayout = as<IRVarLayout>(paramLayoutDecoration->getLayout());
+            SLANG_ASSERT(paramLayout);
+
+            result.outParams.add(pp);
+            result.outParamLayouts.add(paramLayout);
+        }
+    }
+    return result;
+}
+
+// Create a consolidated struct type for ray payload
+static IRStructType* createConsolidatedRayPayloadType(GLSLLegalizationContext* context, const RayTracingOutParams& outParams)
+{
+    auto builder = context->getBuilder();
+    
+    // Create a struct type to hold all out parameters
+    auto structType = builder->createStructType();
+    
+    // Add fields for each out parameter
+    for (Index i = 0; i < outParams.outParams.getCount(); ++i)
+    {
+        auto param = outParams.outParams[i];
+        auto paramType = param->getDataType();
+        IRType* valueType = nullptr;
+        
+        if (auto outType = as<IROutType>(paramType))
+            valueType = outType->getValueType();
+        else if (auto inOutType = as<IRInOutType>(paramType))
+            valueType = inOutType->getValueType();
+        
+        auto key = builder->createStructKey();
+        builder->addNameHintDecoration(key, UnownedStringSlice("field"));
+        builder->createStructField(structType, key, valueType);
+    }
+    
+    return structType;
+}
+
 void legalizeRayTracingEntryPointParameterForGLSL(
     GLSLLegalizationContext* context,
     IRFunc* func,
@@ -2309,49 +2373,143 @@ void legalizeRayTracingEntryPointParameterForGLSL(
     IRVarLayout* paramLayout)
 {
     auto builder = context->getBuilder();
-    auto paramType = pp->getDataType();
+    
+    // If we've already processed this parameter, skip it
+    List<IRParam*>* processedParams = nullptr;
+    if (auto foundList = context->rayTracingProcessedParams.tryGetValue(func))
+    {
+        processedParams = foundList;
+        if (processedParams->contains(pp))
+            return;
+    }
+    else
+    {
+        context->rayTracingProcessedParams[func] = List<IRParam*>();
+        processedParams = &context->rayTracingProcessedParams[func];
+    }
 
-    // The parameter might be either an `in` parameter,
-    // or an `out` or `in out` parameter, and in those
-    // latter cases its IR-level type will include a
-    // wrapping "pointer-like" type (e.g., `Out<Float>`
-    // instead of just `Float`).
-    //
-    // Because global shader parameters are read-only
-    // in the same way function types are, we can take
-    // care of that detail here just by allocating a
-    // global shader parameter with exactly the type
-    // of the original function parameter.
-    //
-    auto globalParam = addGlobalParam(builder->getModule(), paramType);
-    builder->addLayoutDecoration(globalParam, paramLayout);
-    moveValueBefore(globalParam, builder->getFunc());
-    pp->replaceUsesWith(globalParam);
+    // Collect all parameters that need to be consolidated
+    List<IRParam*> params;
+    List<IRVarLayout*> paramLayouts;
+    auto firstBlock = func->getFirstBlock();
+    if (!firstBlock)
+        return;
 
-    // Because linkage between ray-tracing shaders is
-    // based on the type of incoming/outgoing payload
-    // and attribute parameters, it would be an error to
-    // eliminate the global parameter *even if* it is
-    // not actually used inside the entry point.
-    //
-    // We attach a decoration to the entry point that
-    // makes note of the dependency, so that steps
-    // like dead code elimination cannot get rid of
-    // the parameter.
-    //
-    // TODO: We could consider using a structure like
-    // this for *all* of the entry point parameters
-    // that get moved to the global scope, since SPIR-V
-    // ends up requiring such information on an `OpEntryPoint`.
-    //
-    // As a further alternative, we could decide to
-    // keep entry point varying input/outtput attached
-    // to the parameter list through all of the Slang IR
-    // steps, and only declare it as global variables at
-    // the last minute when emitting a GLSL `main` or
-    // SPIR-V for an entry point.
-    //
-    builder->addDependsOnDecoration(func, globalParam);
+    for (auto param = firstBlock->getFirstParam(); param; param = param->getNextParam())
+    {
+        auto pLayoutDecoration = param->findDecoration<IRLayoutDecoration>();
+        SLANG_ASSERT(pLayoutDecoration);
+        auto pLayout = as<IRVarLayout>(pLayoutDecoration->getLayout());
+        SLANG_ASSERT(pLayout);
+
+        // Only include parameters that haven't been processed yet
+        if (!processedParams->contains(param))
+        {
+            params.add(param);
+            paramLayouts.add(pLayout);
+            processedParams->add(param);
+        }
+    }
+
+    if (params.getCount() == 0)
+        return;
+
+    // Check if we already have a consolidated variable for this function
+    IRInst* consolidatedVar = nullptr;
+    if (auto foundVar = context->rayTracingConsolidatedVars.tryGetValue(func))
+    {
+        consolidatedVar = *foundVar;
+    }
+    else
+    {
+        // Create a struct type to hold all parameters
+        auto structType = builder->createStructType();
+        
+        // Add fields for each parameter
+        for (Index i = 0; i < params.getCount(); ++i)
+        {
+            auto param = params[i];
+            auto paramType = param->getDataType();
+            IRType* valueType = paramType;
+            
+            if (auto outType = as<IROutType>(paramType))
+                valueType = outType->getValueType();
+            else if (auto inOutType = as<IRInOutType>(paramType))
+                valueType = inOutType->getValueType();
+            
+            auto key = builder->createStructKey();
+            builder->addNameHintDecoration(key, UnownedStringSlice("field"));
+            auto field = builder->createStructField(structType, key, valueType);
+            field->removeFromParent();
+            field->insertAtEnd(structType);
+        }
+        
+        // Create a global variable to hold the consolidated struct
+        consolidatedVar = builder->createGlobalVar(structType);
+        auto ptrType = builder->getPtrType(kIROp_PtrType, structType, AddressSpace::RayPayloadKHR);
+        consolidatedVar->setFullType(ptrType);
+        consolidatedVar->moveToEnd();
+        
+        // Add the ray payload decoration
+        builder->addVulkanRayPayloadDecoration(consolidatedVar, 0);
+        
+        // Store the consolidated variable for this function
+        context->rayTracingConsolidatedVars[func] = consolidatedVar;
+    }
+
+    // Replace each parameter with a field in the consolidated struct
+    for (Index i = 0; i < params.getCount(); ++i)
+    {
+        auto param = params[i];
+        auto layout = paramLayouts[i];
+        
+        // Get the struct type from the consolidated variable's type
+        auto ptrType = as<IRPtrTypeBase>(consolidatedVar->getDataType());
+        SLANG_ASSERT(ptrType);
+        auto structType = as<IRStructType>(ptrType->getValueType());
+        SLANG_ASSERT(structType);
+        
+        // Find the i-th field
+        IRStructField* targetField = nullptr;
+        Index fieldIndex = 0;
+        for (auto field : structType->getFields())
+        {
+            if (fieldIndex == i)
+            {
+                targetField = field;
+                break;
+            }
+            fieldIndex++;
+        }
+        SLANG_ASSERT(targetField);
+
+        // Create the field address with the correct type
+        auto paramType = param->getDataType();
+        auto fieldType = targetField->getFieldType();
+        
+        // If the parameter is an out/inout type, we need to create a pointer type
+        IRType* fieldPtrType = nullptr;
+        if (auto outType = as<IROutType>(paramType))
+        {
+            fieldPtrType = builder->getPtrType(kIROp_OutType, fieldType);
+        }
+        else if (auto inOutType = as<IRInOutType>(paramType))
+        {
+            fieldPtrType = builder->getPtrType(kIROp_InOutType, fieldType);
+        }
+        else
+        {
+            fieldPtrType = builder->getPtrType(kIROp_PtrType, fieldType, AddressSpace::RayPayloadKHR);
+        }
+
+        auto fieldAddr = builder->emitFieldAddress(
+            fieldPtrType,
+            consolidatedVar,
+            targetField->getKey());
+            
+        // Replace parameter uses with field address
+        param->replaceUsesWith(fieldAddr);
+    }
 }
 
 static void legalizeMeshPayloadInputParam(
