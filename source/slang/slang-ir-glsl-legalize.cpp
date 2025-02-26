@@ -3323,7 +3323,12 @@ void legalizeEntryPointParameterForGLSL(
 
             // If we have just one inout or out param, we don't need consolidation.
             bool hasSingleOutOrInOutParam = inoutOrOutParamCount <= 1;
-            legalizeRayTracingEntryPointParameterForGLSL(context, func, pp, paramLayout, hasSingleOutOrInOutParam);
+            legalizeRayTracingEntryPointParameterForGLSL(
+                context,
+                func,
+                pp,
+                paramLayout,
+                hasSingleOutOrInOutParam);
         }
         return;
     }
