@@ -2397,24 +2397,19 @@ static void consolidateParameters(
             fieldPtrType = builder->getPtrType(kIROp_InOutType, fieldType);
         }
 
-        auto fieldAddr = builder->emitFieldAddress(
-            fieldPtrType,
-            consolidatedVar,
-            targetField->getKey());
+        auto fieldAddr =
+            builder->emitFieldAddress(fieldPtrType, consolidatedVar, targetField->getKey());
 
         // Replace parameter uses with field address
         _param->replaceUsesWith(fieldAddr);
     }
 }
 
-static void handleMultipleParams(
-    GLSLLegalizationContext* context,
-    IRFunc* func,
-    IRParam* pp)
+static void handleMultipleParams(GLSLLegalizationContext* context, IRFunc* func, IRParam* pp)
 {
     auto firstBlock = func->getFirstBlock();
 
-    // Now we run the consolidation step, but if we've already 
+    // Now we run the consolidation step, but if we've already
     // processed this parameter, skip it.
     List<IRParam*>* processedParams = nullptr;
     if (auto foundList = context->rayTracingProcessedParams.tryGetValue(func))
