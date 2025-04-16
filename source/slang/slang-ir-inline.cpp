@@ -361,7 +361,8 @@ struct InliningPassBase
                 if (!debugFuncCurrent)
                 {
                     auto nameHint = callee->findDecoration<IRNameHintDecoration>();
-                    IRStringLit* nameOperand = nameHint ? as<IRStringLit>(nameHint->getNameOperand()) : nullptr;
+                    IRStringLit* nameOperand =
+                        nameHint ? as<IRStringLit>(nameHint->getNameOperand()) : nullptr;
                     if (nameOperand)
                     {
                         auto locationDecor = callee->findDecoration<IRDebugLocationDecoration>();
@@ -373,9 +374,12 @@ struct InliningPassBase
                             locationDecor->getCol(),
                             locationDecor->getSource(),
                             debugType);
-                        
+
                         // Add a decoration to link the function to its debug function
-                        builder.addDecoration(callee, kIROp_DebugFunctionDecoration, debugFuncCurrent);
+                        builder.addDecoration(
+                            callee,
+                            kIROp_DebugFunctionDecoration,
+                            debugFuncCurrent);
                     }
                 }
 
@@ -384,12 +388,14 @@ struct InliningPassBase
                 if (!debugFuncParent && parentFunc)
                 {
                     auto nameHint = parentFunc->findDecoration<IRNameHintDecoration>();
-                    IRStringLit* nameOperand = nameHint ? as<IRStringLit>(nameHint->getNameOperand()) : nullptr;
+                    IRStringLit* nameOperand =
+                        nameHint ? as<IRStringLit>(nameHint->getNameOperand()) : nullptr;
                     if (nameOperand)
                     {
                         IRInst* debugType = parentFunc->getDataType();
 
-                        auto locationDecor = parentFunc->findDecoration<IRDebugLocationDecoration>();
+                        auto locationDecor =
+                            parentFunc->findDecoration<IRDebugLocationDecoration>();
                         if (!locationDecor)
                             locationDecor = callee->findDecoration<IRDebugLocationDecoration>();
 
@@ -399,9 +405,12 @@ struct InliningPassBase
                             locationDecor->getCol(),
                             locationDecor->getSource(),
                             debugType);
-                        
+
                         // Add a decoration to link the function to its debug function
-                        builder.addDecoration(parentFunc, kIROp_DebugFunctionDecoration, debugFuncParent);
+                        builder.addDecoration(
+                            parentFunc,
+                            kIROp_DebugFunctionDecoration,
+                            debugFuncParent);
                     }
                 }
 
