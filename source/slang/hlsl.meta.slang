@@ -24413,6 +24413,8 @@ struct CoopVec<T : __BuiltinArithmeticType, let N : int> : IArray<T>, IArithmeti
             __intrinsic_asm "$0 = $1";
         case hlsl_coopvec_poc:
             __intrinsic_asm ".CopyFrom";
+        case cuda:
+            __intrinsic_asm "optixCoopVecCvt($0);";
         default:
             if (__isFloat<T>() && __isInt<U>())
                 this = __int_to_float_cast<T>(other);
@@ -24590,6 +24592,8 @@ struct CoopVec<T : __BuiltinArithmeticType, let N : int> : IArray<T>, IArithmeti
             CoopVec<T, N> ret;
             ret.__Load(buffer, byteOffset16ByteAligned);
             return ret;
+        case cuda:
+            __intrinsic_asm "optixCoopVecLoad($0);";
         default:
             var vec = CoopVec<T, N>();
             for(int i = 0; i < N; ++i)
@@ -24617,6 +24621,8 @@ struct CoopVec<T : __BuiltinArithmeticType, let N : int> : IArray<T>, IArithmeti
             CoopVec<T, N> ret;
             ret.__Load(buffer, byteOffset16ByteAligned);
             return ret;
+        case cuda:
+            __intrinsic_asm "optixCoopVecLoad($0);";
         default:
             var vec = CoopVec<T, N>();
             for(int i = 0; i < N; ++i)
@@ -24700,6 +24706,8 @@ struct CoopVec<T : __BuiltinArithmeticType, let N : int> : IArray<T>, IArithmeti
             CoopVec<T, N> ret;
             ret.__Load(data, __byteToElemOffset<T>(byteOffset16ByteAligned));
             return ret;
+        case cuda:
+            __intrinsic_asm "optixCoopVecLoad($0);";
         default:
             CoopVec<T,N> result;
             for(int i = 0; i < N; ++i)
@@ -24916,6 +24924,7 @@ struct CoopVec<T : __BuiltinArithmeticType, let N : int> : IArray<T>, IArithmeti
             This ret = this;
             ret.__mutAdd(other);
             return ret;
+        case cuda: __intrinsic_asm "optixCoopVecAdd($0, $1)";
         default: return __pureAdd(other);
         }
     }
@@ -24951,6 +24960,8 @@ struct CoopVec<T : __BuiltinArithmeticType, let N : int> : IArray<T>, IArithmeti
             This ret = this;
             ret.__mutSub(other);
             return ret;
+        case cuda: 
+            __intrinsic_asm "optixCoopVecSub($0, $1)";
         default: return __pureSub(other);
         }
     }
@@ -24986,6 +24997,8 @@ struct CoopVec<T : __BuiltinArithmeticType, let N : int> : IArray<T>, IArithmeti
             This ret = this;
             ret.__mutMul(other);
             return ret;
+        case cuda:
+            __intrinsic_asm "optixCoopVecMul($0, $1)";
         default: return __pureMul(other);
         }
     }
@@ -25620,6 +25633,8 @@ CoopVec<T, N> min<T : __BuiltinFloatingPointType, let N : int>(CoopVec<T, N> x, 
         CoopVec<T, N> ret = x;
         ret.__mutMin(y);
         return ret;
+    case cuda:
+        __intrinsic_asm "optixCoopVecMin($0, $1)";
     default:
         CoopVec<T, N> ret;
         for(int i = 0; i < N; ++i)
@@ -25647,6 +25662,8 @@ CoopVec<T, N> max<T : __BuiltinFloatingPointType, let N : int>(CoopVec<T, N> x, 
         CoopVec<T, N> ret = x;
         ret.__mutMax(y);
         return ret;
+    case cuda:
+        __intrinsic_asm "optixCoopVecMax($0, $1)";
     default:
         CoopVec<T, N> ret;
         for(int i = 0; i < N; ++i)
@@ -25809,6 +25826,8 @@ CoopVec<T, N> step<T : __BuiltinFloatingPointType, let N : int>(CoopVec<T, N> ed
         {
             result:$$CoopVec<T, N> = OpExtInst glsl450 Step $edge $x;
         };
+    case cuda:
+        __intrinsic_asm "optixCoopVecStep($0, $1)";
     default:
         CoopVec<T, N> ret;
         for(int i = 0; i < N; ++i)
@@ -25874,6 +25893,40 @@ CoopVec<T, N> log<T : __BuiltinFloatingPointType, let N : int>(CoopVec<T, N> x)
 // [ForceInline]
 [require(cooperative_vector)]
 [require(hlsl_coopvec_poc)]
+CoopVec<T, N> log2<T : __BuiltinFloatingPointType, let N : int>(CoopVec<T, N> x)
+{
+    __target_switch
+    {
+    default:
+        CoopVec<T, N> ret;
+        for(int i = 0; i < N; ++i)
+            ret[i] = log2(x[i]);
+        return ret;
+    case cuda:
+        case cuda: __intrinsic_asm "optixCoopVecLog2($0)";
+    }
+}
+
+// [ForceInline]
+[require(cooperative_vector)]
+[require(hlsl_coopvec_poc)]
+CoopVec<T, N> exp2<T : __BuiltinFloatingPointType, let N : int>(CoopVec<T, N> x)
+{
+    __target_switch
+    {
+    default:
+        CoopVec<T, N> ret;
+        for(int i = 0; i < N; ++i)
+            ret[i] = exp2(x[i]);
+        return ret;
+    case cuda:
+        case cuda: __intrinsic_asm "optixCoopVecExp2($0)";
+    }
+}
+
+// [ForceInline]
+[require(cooperative_vector)]
+[require(hlsl_coopvec_poc)]
 CoopVec<T, N> tanh<T : __BuiltinFloatingPointType, let N : int>(CoopVec<T, N> x)
 {
     __target_switch
@@ -25890,6 +25943,7 @@ CoopVec<T, N> tanh<T : __BuiltinFloatingPointType, let N : int>(CoopVec<T, N> x)
         {
             result:$$CoopVec<T, N> = OpExtInst glsl450 Tanh $x;
         };
+    case cuda: __intrinsic_asm "optixCoopVecTanh($0)";
     default:
         CoopVec<T, N> ret;
         for(int i = 0; i < N; ++i)
@@ -25947,6 +26001,8 @@ CoopVec<T, N> fma<T : __BuiltinFloatingPointType, let N : int>(CoopVec<T, N> a, 
         {
             result:$$CoopVec<T, N> = OpExtInst glsl450 Fma $a $b $c;
         };
+    case cuda: 
+        __intrinsic_asm "optixCoopVecFFMA($0, $1, $2)";
     default:
         CoopVec<T, N> ret;
         for(int i = 0; i < N; ++i)
@@ -26757,6 +26813,8 @@ void coopVecOuterProductAccumulate<T : __BuiltinArithmeticType, let M : int, let
             OpCapability CooperativeVectorTrainingNV;
             OpCooperativeVectorOuterProductAccumulateNV $matrixPtr $matrixOffset $a $b $memoryLayoutSpirv $matrixInterpretationSpirv $matrixStride;
         };
+    case cuda:
+        __intrinsic_asm "optixCoopVecOuterProductAccumulate($0, $1, $2, $3, $4)";
     default:
         for (int i = 0; i < M; ++i)
         {
@@ -26839,6 +26897,8 @@ void coopVecReduceSumAccumulate<T : __BuiltinArithmeticType, let N : int>(
             OpCapability CooperativeVectorTrainingNV;
             OpCooperativeVectorReduceSumAccumulateNV $bufferPtr $offset $v;
         };
+    case cuda:
+        __intrinsic_asm "optixCoopVecReduceSumAccumulate($0, $1, $2)";
     default:
         for (int i = 0; i < N; ++i)
         {
