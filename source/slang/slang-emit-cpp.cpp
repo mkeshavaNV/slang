@@ -1153,9 +1153,12 @@ void CPPSourceEmitter::_emitType(IRType* type, DeclaratorInfo* declarator)
             auto elementType = arrayType->getElementType();
             int elementCount = int(getIntVal(arrayType->getElementCount()));
 
-            // Check if this array was originally a cooperative vector by looking for the "CoopVec" name hint
+            // Check if this array was originally a cooperative vector by looking for the "CoopVec"
+            // name hint
             auto nameHint = arrayType->findDecoration<IRNameHintDecoration>();
-            char const* emitType = nameHint->getName() == UnownedStringSlice("CoopVec") ? "OptixCoopVec<" : "FixedArray<";
+            char const* emitType = nameHint->getName() == UnownedStringSlice("CoopVec")
+                                       ? "OptixCoopVec<"
+                                       : "FixedArray<";
             m_writer->emit(emitType);
             _emitType(elementType, nullptr);
             m_writer->emit(", ");
